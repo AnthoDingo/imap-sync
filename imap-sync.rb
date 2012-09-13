@@ -1,6 +1,6 @@
 #!/usr/bin/env ruby
 
-if $PROGRAM_NAME == __FILE__
+if File.basename($PROGRAM_NAME) == __FILE__
   require 'yaml'
   if ARGV
     require 'open-uri'
@@ -16,12 +16,14 @@ end
 
 require 'net/imap'
 
+@dry = C['dry']
+
 def dd(message)
-  puts "[#{C['source']['host']}] #{message}"
+  puts "[#{C['destination']['host']}] #{message}"
 end
 
 def ds(message)
-  puts "[#{C['destination']['host']}] #{message}"
+  puts "[#{C['source']['host']}] #{message}"
 end
 
 # 1024 is the max number of messages to select at once
@@ -50,6 +52,7 @@ def compare_folders(source, dest, source_folder, dest_folder)
   rescue => e
     begin
       dd "folder not found; creating..."
+      next if @dry
       dest.create(dest_folder)
       dest.select(dest_folder)
     rescue => ee
@@ -70,6 +73,7 @@ def compare_folders(source, dest, source_folder, dest_folder)
     end
   end
 
+  dup_count = 0
   # Loop through all messages in the source folder.
   uids = source.uid_search(['ALL'])
   ds "found #{uids.length} messages"
@@ -78,7 +82,12 @@ def compare_folders(source, dest, source_folder, dest_folder)
       mid = data.attr['ENVELOPE'].message_id
 
       # If this message is already in the destination folder, skip it.
-      next if dest_info[mid]
+      if dest_info[mid] 
+        dup_count += 1
+        next 
+      end
+
+      next if @dry  # move on if it's a dry run
 
       # Download the full message body from the source folder.
       ds "downloading message #{mid}..."
@@ -96,6 +105,8 @@ def compare_folders(source, dest, source_folder, dest_folder)
       end until success
     end
   end
+
+  puts "messages already present at destination: #{dup_count}"
 
   source.close
   dest.close

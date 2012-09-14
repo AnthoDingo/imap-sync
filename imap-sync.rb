@@ -1,5 +1,7 @@
 #!/usr/bin/env ruby
 
+STDOUT.sync = true ## flush buffer right away
+
 if File.basename($PROGRAM_NAME) == __FILE__
   require 'yaml'
   if ARGV
@@ -16,7 +18,12 @@ end
 
 require 'net/imap'
 
-@dry = C['dry']
+
+# dry run? 
+@dry = C['dry'] || false
+
+# set destination size limit
+@limit = C['limit'] || 0
 
 def dd(message)
   puts "[#{C['destination']['host']}] #{message}"
@@ -42,7 +49,7 @@ def compare_folders(source, dest, source_folder, dest_folder)
     source.examine(source_folder)
   rescue => e
     ds "error: select failed: #{e}"
-    next
+    return
   end
 
   # Open (or create) destination folder in read-write mode.
@@ -52,12 +59,12 @@ def compare_folders(source, dest, source_folder, dest_folder)
   rescue => e
     begin
       dd "folder not found; creating..."
-      next if @dry
+      return if @dry
       dest.create(dest_folder)
       dest.select(dest_folder)
     rescue => ee
       dd "error: could not create folder: #{e}"
-      next
+      return 
     end
   end
 
@@ -76,25 +83,40 @@ def compare_folders(source, dest, source_folder, dest_folder)
   dup_count = 0
   # Loop through all messages in the source folder.
   uids = source.uid_search(['ALL'])
-  ds "found #{uids.length} messages"
+
+	total = uids.length
+	count = 0
+  ds "found #{total} messages"
+
   if uids.length > 0
     uid_fetch_block(source, uids, ['ENVELOPE']) do |data|
       mid = data.attr['ENVELOPE'].message_id
-
+ 	    env = data.attr['ENVELOPE']
+			count += 1
       # If this message is already in the destination folder, skip it.
       if dest_info[mid] 
         dup_count += 1
         next 
       end
 
-      next if @dry  # move on if it's a dry run
-
-      # Download the full message body from the source folder.
-      ds "downloading message #{mid}..."
-      msg = source.uid_fetch(data.attr['UID'], ['RFC822', 'FLAGS', 'INTERNALDATE']).first
+			if @dry # move on if it's a dry run
+				puts "Dry: #{mid}; info: #{data.attr['ENVELOPE']}"
+				next
+			end
+      
+			# Download the full message body from the source folder.
+      ds "(#{count}/#{total}) downloading message #{mid}, subj:#{env.subject}, from:#{env.from}, ..."
+	
+      msg = source.uid_fetch(data.attr['UID'], ['RFC822', 'RFC822.SIZE', 'FLAGS', 'INTERNALDATE']).first
 
       # Append the message to the destination folder, preserving flags and internal timestamp.
-      dd "storing message #{mid}..."
+			sz = msg.attr['RFC822.SIZE']
+      dd "storing message #{mid} (size = #{sz})..."
+		  if @limit > 0 and sz > @limit
+				puts dd "ignore msg, too big"
+				next
+			end
+
       success = false
       begin
         dest.append(dest_folder, msg.attr['RFC822'], msg.attr['FLAGS'], msg.attr['INTERNALDATE'])

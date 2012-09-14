@@ -25,8 +25,8 @@ end
 
 ## main scripting
 src = Net::IMAP.new(config['source']['host'], 
-	config['source']['port'], 
-        config['source']['ssl'])
+	:port => config['source']['port'], 
+  :ssl => config['source']['ssl'])
 
 src.login(config['source']['username'], config['source']['password'])
 

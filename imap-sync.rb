@@ -1,5 +1,8 @@
 #!/usr/bin/env ruby
 
+require 'openssl'
+OpenSSL::SSL::VERIFY_PEER = OpenSSL::SSL::VERIFY_NONE
+
 STDOUT.sync = true ## flush buffer right away
 
 if File.basename($PROGRAM_NAME) == __FILE__
